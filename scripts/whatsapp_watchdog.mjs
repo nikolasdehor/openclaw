@@ -146,8 +146,19 @@ function toLine(m) {
   const text = (m.Text || '').replace(/\s+/g, ' ').trim();
   const media = (m.MediaType || '').toLowerCase();
 
+  const placeholder = /^\[(audio|voice|vídeo|video|imagem|image|sticker|arquivo|file|document)\]$/i.test(text);
+
   let line = '';
-  if (text) {
+
+  // Prefer media label when we have media and the "text" is empty or just a placeholder like "[Audio]".
+  if (media && (!text || placeholder)) {
+    if (media === 'audio' || media === 'ptt' || media === 'voice') line = '[Áudio]';
+    else if (media === 'image') line = '[Imagem]';
+    else if (media === 'video') line = '[Vídeo]';
+    else if (media === 'document' || media === 'file') line = '[Arquivo]';
+    else if (media === 'sticker') line = '[Sticker]';
+    else line = '[Mídia]';
+  } else if (text) {
     if (/^https?:\/\/\S+$/.test(text)) {
       try {
         const u = new URL(text);
@@ -155,16 +166,14 @@ function toLine(m) {
       } catch {
         line = 'link';
       }
+    } else if (/^\[audio\]$/i.test(text)) {
+      // wacli sometimes stores audio as text placeholder
+      line = '[Áudio]';
     } else {
       line = text;
     }
   } else {
-    if (media === 'audio') line = '[Áudio]';
-    else if (media === 'image') line = '[Imagem]';
-    else if (media === 'video') line = '[Vídeo]';
-    else if (media === 'document' || media === 'file') line = '[Arquivo]';
-    else if (media === 'sticker') line = '[Sticker]';
-    else line = '[Mídia]';
+    line = '[Mídia]';
   }
 
   if (line.length > 140) line = line.slice(0, 137) + '...';
@@ -183,7 +192,7 @@ function main() {
   }
 
   const seenMsgIds = new Set();
-  /** @type {Record<string, {ts:string, line:string, senderJid?:string|null}[]>} */
+  /** @type {Record<string, {ts:string, line:string, senderJid?:string|null, isMedia?:boolean}[]>} */
   const byLabel = {};
 
   let hadAnyHardError = false;
@@ -220,7 +229,12 @@ function main() {
 
       const label = labelForJid(jid);
       if (!byLabel[label]) byLabel[label] = [];
-      byLabel[label].push({ ts: m.Timestamp || nowIsoUtc(), line: toLine(m), senderJid: m.SenderJID || null });
+
+      const media = (m.MediaType || '').toLowerCase();
+      const text = (m.Text || '').trim();
+      const isMedia = !!media || /^\[(audio|voice|vídeo|video|imagem|image|sticker|arquivo|file|document)\]$/i.test(text);
+
+      byLabel[label].push({ ts: m.Timestamp || nowIsoUtc(), line: toLine(m), senderJid: m.SenderJID || null, isMedia });
     }
   }
 
@@ -277,10 +291,39 @@ function main() {
     out += `*${label}*\n`;
 
     const total = items.length;
-    const start = Math.max(0, total - 3);
-    for (let i = start; i < total; i++) {
+
+    // Default: show last 3.
+    const shownIdx = [];
+    for (let i = Math.max(0, total - 3); i < total; i++) shownIdx.push(i);
+
+    // Group tweak: if there is any media in the batch but the last 3 don't include it,
+    // replace the oldest shown item with the most recent media item so it doesn't get hidden.
+    if (label === 'FOR6DEVS' && total > 3) {
+      const hasMediaInShown = shownIdx.some(i => items[i].isMedia);
+      if (!hasMediaInShown) {
+        let lastMedia = -1;
+        for (let i = total - 1; i >= 0; i--) {
+          if (items[i].isMedia) {
+            lastMedia = i;
+            break;
+          }
+        }
+        if (lastMedia >= 0 && !shownIdx.includes(lastMedia)) {
+          shownIdx[0] = lastMedia;
+          shownIdx.sort((a, b) => a - b);
+        }
+      }
+    }
+
+    for (let pos = 0; pos < shownIdx.length; pos++) {
+      const i = shownIdx[pos];
       let line = items[i].line;
-      if (i === total - 1 && total > 3) line = `${line} (+${total - 3})`;
+
+      // Append count of hidden items on the final displayed bullet.
+      if (pos === shownIdx.length - 1) {
+        const hidden = total - shownIdx.length;
+        if (hidden > 0) line = `${line} (+${hidden})`;
+      }
 
       const hm = formatHmLocal(items[i].ts);
       let prefix = hm ? `${hm} ` : '';
