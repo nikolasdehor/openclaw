@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -66,7 +66,7 @@ function initState() {
     lastSeenTs[jid] = now;
     errorStreak[jid] = 0;
   }
-  return { lastSeenTs, errorStreak, lastErrorNotifyAt: null, contacts: {}, version: 4 };
+  return { lastSeenTs, errorStreak, lastErrorNotifyAt: null, contacts: {}, transcripts: {}, version: 5 };
 }
 
 function normalizeState(raw) {
@@ -82,7 +82,8 @@ function normalizeState(raw) {
     errorStreak: raw.errorStreak && typeof raw.errorStreak === 'object' ? raw.errorStreak : {},
     lastErrorNotifyAt: raw.lastErrorNotifyAt || null,
     contacts: raw.contacts && typeof raw.contacts === 'object' ? raw.contacts : {},
-    version: raw.version || 4,
+    transcripts: raw.transcripts && typeof raw.transcripts === 'object' ? raw.transcripts : {},
+    version: raw.version || 5,
   };
 
   const now = nowIsoUtc();
@@ -125,6 +126,101 @@ function runWacliContactName(jid) {
     const c = (parsed && parsed.data) || null;
     if (!c) return null;
     return (c.Alias || c.Name || c.Phone || '').toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function runWacliMediaDownload({ chat, id, outDir }) {
+  try {
+    const out = execFileSync(
+      'wacli',
+      ['--timeout', '60s', 'media', 'download', '--chat', chat, '--id', id, '--output', outDir, '--json'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    const parsed = JSON.parse(out);
+    if (parsed && parsed.success && parsed.data && parsed.data.path) {
+      return { ok: true, path: parsed.data.path };
+    }
+    return { ok: false, error: JSON.stringify(parsed) };
+  } catch (e) {
+    const stdout = e && e.stdout ? e.stdout.toString('utf8') : '';
+    const stderr = e && e.stderr ? e.stderr.toString('utf8') : '';
+    const msg = (stdout || stderr || (e && e.message) || '').trim();
+    return { ok: false, error: msg || 'download failed' };
+  }
+}
+
+function maybeUnlockStoreAndRetry(fn) {
+  // If the store is locked by a long-running `wacli sync --follow`, interrupt it briefly.
+  // This lets us download media (audio) and then we restart the sync.
+  let killedPid = null;
+  let res = fn();
+  if (res.ok) return { res, killedPid };
+
+  const m = String(res.error || '').match(/pid=(\d+)/);
+  if (m) {
+    const pid = Number(m[1]);
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        process.kill(pid, 'SIGINT');
+        killedPid = pid;
+        // wait a bit
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);
+      } catch {
+        // ignore
+      }
+      res = fn();
+    }
+  }
+  return { res, killedPid };
+}
+
+function restartWacliSyncFollow() {
+  try {
+    const child = spawn('wacli', ['sync', '--follow', '--refresh-contacts', '--refresh-groups'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch {
+    // ignore
+  }
+}
+
+function transcribeAudioFile(filePath) {
+  try {
+    const outDir = '/Users/nikolas/.openclaw/workspace/tmp/whisper';
+    fs.mkdirSync(outDir, { recursive: true });
+
+    execFileSync(
+      'whisper',
+      [
+        filePath,
+        '--language',
+        'pt',
+        '--task',
+        'transcribe',
+        '--model',
+        'turbo',
+        '--output_format',
+        'txt',
+        '--output_dir',
+        outDir,
+        '--verbose',
+        'False',
+      ],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'ignore', 'ignore'],
+        timeout: 120000,
+      }
+    );
+
+    const base = path.basename(filePath).replace(/\.[^.]+$/, '');
+    const txtPath = path.join(outDir, `${base}.txt`);
+    const text = fs.readFileSync(txtPath, 'utf8');
+    return (text || '').replace(/\s+/g, ' ').trim();
   } catch {
     return null;
   }
@@ -192,7 +288,7 @@ function main() {
   }
 
   const seenMsgIds = new Set();
-  /** @type {Record<string, {ts:string, line:string, senderJid?:string|null, isMedia?:boolean}[]>} */
+  /** @type {Record<string, {ts:string, line:string, senderJid?:string|null, isMedia?:boolean, msgId?:string|null, chatJid?:string|null, mediaType?:string|null}[]>} */
   const byLabel = {};
 
   let hadAnyHardError = false;
@@ -234,7 +330,15 @@ function main() {
       const text = (m.Text || '').trim();
       const isMedia = !!media || /^\[(audio|voice|vídeo|video|imagem|image|sticker|arquivo|file|document)\]$/i.test(text);
 
-      byLabel[label].push({ ts: m.Timestamp || nowIsoUtc(), line: toLine(m), senderJid: m.SenderJID || null, isMedia });
+      byLabel[label].push({
+        ts: m.Timestamp || nowIsoUtc(),
+        line: toLine(m),
+        senderJid: m.SenderJID || null,
+        isMedia,
+        msgId,
+        chatJid: jid,
+        mediaType: media || null,
+      });
     }
   }
 
@@ -282,6 +386,38 @@ function main() {
     return null;
   }
 
+  function getTranscriptForItem(item) {
+    try {
+      if (!item || item.mediaType !== 'audio') return null;
+      const key = `${item.chatJid || ''}|${item.msgId || ''}`;
+      if (state.transcripts && typeof state.transcripts[key] === 'string' && state.transcripts[key]) {
+        return state.transcripts[key];
+      }
+
+      const outDir = '/Users/nikolas/.openclaw/workspace/tmp/wa-media';
+      fs.mkdirSync(outDir, { recursive: true });
+
+      const { res, killedPid } = maybeUnlockStoreAndRetry(() =>
+        runWacliMediaDownload({ chat: item.chatJid, id: item.msgId, outDir })
+      );
+
+      if (killedPid) restartWacliSyncFollow();
+
+      if (!res.ok || !res.path) return null;
+
+      const transcript = transcribeAudioFile(res.path);
+      if (!transcript) return null;
+
+      const clean = transcript.replace(/\s+/g, ' ').trim();
+      const short = clean.length > 220 ? clean.slice(0, 217) + '...' : clean;
+
+      state.transcripts[key] = short;
+      return short;
+    } catch {
+      return null;
+    }
+  }
+
   // Build message
   let out = '*WhatsApp (novas mensagens)*\n\n';
   for (const label of labelsOrder) {
@@ -318,6 +454,12 @@ function main() {
     for (let pos = 0; pos < shownIdx.length; pos++) {
       const i = shownIdx[pos];
       let line = items[i].line;
+
+      // Always transcribe audio (best-effort) so the alert is self-contained.
+      if (items[i].mediaType === 'audio') {
+        const tr = getTranscriptForItem(items[i]);
+        line = tr ? `[Áudio] ${tr}` : '[Áudio]';
+      }
 
       // Append count of hidden items on the final displayed bullet.
       if (pos === shownIdx.length - 1) {
