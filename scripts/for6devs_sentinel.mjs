@@ -169,13 +169,30 @@ function transcribeAudioFile(filePath) {
   }
 }
 
+const OWNER_JIDS = new Set([
+  // Nikolas (owner) variants
+  '556286077431@s.whatsapp.net',
+  '556286077431:33@s.whatsapp.net',
+  '89163739189254@lid',
+  '89163739189254:33@lid',
+]);
+
+function isDirectMention(t) {
+  return /(dehor|devinho|bot)\b/i.test((t || '').trim());
+}
+
 function isQuestionText(t) {
   const s = (t || '').trim();
   if (!s) return false;
   const lower = s.toLowerCase();
+
+  // Strong signals.
   if (s.includes('?')) return true;
-  if (/(\bcomo\b|\bqual\b|\bque horas\b|\bquando\b|\bpor que\b|\bporque\b|\balgu[eé]m\b|\bajuda\b|\berro\b|\bbug\b)/.test(lower)) return true;
-  if (/(dehor|devinho|bot)\b/.test(lower)) return true;
+  if (isDirectMention(s)) return true;
+
+  // Weak signals (only if message starts like a question).
+  if (/^(como|qual|quando|onde|pq|por que|que horas|algu[eé]m|ajuda|erro|bug)\b/.test(lower)) return true;
+
   return false;
 }
 
@@ -230,11 +247,11 @@ function main() {
     return;
   }
 
-  // Build full context for the LLM: latest 20 messages
-  const ctxRes = runWacliList({ after: '1970-01-01T00:00:00Z', limit: 20 });
+  // Build full context for the LLM: latest 40 messages
+  const ctxRes = runWacliList({ after: '1970-01-01T00:00:00Z', limit: 40 });
   const ctxMsgs = (ctxRes.ok ? (((ctxRes.json || {}).data || {}).messages) : []) || [];
   const context = ctxMsgs
-    .slice(0, 20)
+    .slice(0, 40)
     .map(m => ({
       ts: m.Timestamp,
       fromMe: !!m.FromMe,
@@ -251,8 +268,19 @@ function main() {
   for (let i = incoming.length - 1; i >= 0; i--) {
     const m = incoming[i];
     const isAudio = m.mediaType === 'audio';
+
+    // Don't auto-reply to the owner in the group (unless direct mention).
+    if (m.senderJid && OWNER_JIDS.has(m.senderJid) && !isDirectMention(m.text)) continue;
+
     if (!m.text && !isAudio) continue;
-    if (isAudio || isQuestionText(m.text)) {
+
+    // For audio, we'll only consider it a candidate after transcription (later) and if it looks like a question.
+    if (isAudio) {
+      candidate = m;
+      break;
+    }
+
+    if (isQuestionText(m.text)) {
       candidate = m;
       break;
     }
@@ -264,8 +292,17 @@ function main() {
     return;
   }
 
+  const lastIncoming = incoming[incoming.length - 1];
+
+  // Don't jump in if the conversation already moved past the candidate (unless direct mention).
+  const directMention = isDirectMention(candidate.text);
+  if (lastIncoming && candidate.id && lastIncoming.id && candidate.id !== lastIncoming.id && !directMention) {
+    writeJson(STATE_FILE, state);
+    process.stdout.write('NOSEND\n');
+    return;
+  }
+
   // If we're within cool-down and it's not a direct mention, skip.
-  const directMention = /(dehor|devinho|bot)\b/i.test(candidate.text || '');
   if (!allowAny && !directMention) {
     writeJson(STATE_FILE, state);
     process.stdout.write('NOSEND\n');
@@ -298,7 +335,18 @@ function main() {
         }
       }
     }
+
+    // If audio transcript doesn't look like a question/help, skip.
+    if (!isQuestionText(transcript || '')) {
+      writeJson(STATE_FILE, state);
+      process.stdout.write('NOSEND\n');
+      return;
+    }
   }
+
+  // Mark as responded now (best-effort throttle; assumes the cron will send after we say SEND)
+  state.lastRespondedAt = nowIsoUtc();
+  state.lastRespondedMsgId = candidate.id || null;
 
   // Persist state (seen ts + caches)
   writeJson(STATE_FILE, state);
