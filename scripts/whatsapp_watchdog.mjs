@@ -12,7 +12,6 @@ const JIDS = [
   '93115327246503@lid',
   '556299107824@s.whatsapp.net',
   '23454933864500@lid',
-  '120363152934505042@g.us',
 ];
 
 function labelForJid(jid) {
@@ -26,8 +25,7 @@ function labelForJid(jid) {
     case '556299107824@s.whatsapp.net':
     case '23454933864500@lid':
       return 'Laura';
-    case '120363152934505042@g.us':
-      return 'FOR6DEVS';
+    // FOR6DEVS group disabled in watchdog (avoid flooding Nikolas DM)
     default:
       return 'WhatsApp';
   }
@@ -345,7 +343,7 @@ function main() {
   // persist state
   writeJson(STATE_FILE, state);
 
-  const labelsOrder = ['Pai', 'Mãe', 'Laura', 'FOR6DEVS'];
+  const labelsOrder = ['Pai', 'Mãe', 'Laura'];
   const anyNew = labelsOrder.some(l => (byLabel[l] || []).length > 0);
 
   if (!anyNew) {
