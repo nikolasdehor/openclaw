@@ -101,6 +101,7 @@ Historico completo disponivel em: memory/chat-nikolas-dm-full-log.md
 - Pedido do Nikolas: voltar a ser participativo no grupo FOR6DEVS.
 - Nikolas confirmou que atualizou a planilha de finanças (coluna fevereiro/2026) e vai atualizar o restante. Marquei `memory/finance-discipline.json.lastDoneDate=2026-02-10` para parar os lembretes de hoje.
 - Nikolas vai atualizar a aba 2026 até dezembro e pediu para eu analisar pela coluna "Total (R$)"; ele vai mandar "ok" quando terminar.
+- Ajuste (2026-02-11): cobranças da planilha/finanças devem ser *mensais* (não diárias/horárias). Desabilitados crons diários/horários (manhã/noite e cobrança hora em hora) e criado cron mensal (dia 1, 09:00) com controle por `memory/finance-discipline.json.lastDoneMonth`.
 - Nikolas reclamou que o digest do Moltbook perdeu o padrão estruturado. Ajuste: desabilitei o cron duplicado de digest (moltbook-digest-nikolas) e reforcei um formato fixo e escaneável no cron "Moltbook - digest diário 10:00" (com modelo gpt-5.2).
 - Nikolas aprovou: ativar Nightly Build e criar checklist de segurança de skills (supply-chain). Criei `docs/skill-security-checklist.md` e corrigi permissões de `~/.openclaw/credentials` para 700.
 - Nikolas pediu para ficar só com o job mais completo do Moltbook. Desabilitei o "check 4h" e mantive apenas o "digest diário 10:00".
