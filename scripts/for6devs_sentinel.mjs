@@ -292,11 +292,23 @@ function main() {
     return;
   }
 
-  const lastIncoming = incoming[incoming.length - 1];
-
-  // Don't jump in if the conversation already moved past the candidate (unless direct mention).
   const directMention = isDirectMention(candidate.text);
-  if (lastIncoming && candidate.id && lastIncoming.id && candidate.id !== lastIncoming.id && !directMention) {
+
+  // Don't jump in if the conversation already moved far past the candidate (unless direct mention).
+  const idx = incoming.findIndex(x => x && x.id && candidate.id && x.id === candidate.id);
+  const afterCount = idx >= 0 ? (incoming.length - idx - 1) : 0;
+  const lastIncoming = incoming[incoming.length - 1];
+  const driftMin = lastIncoming && lastIncoming.ts ? minutesAgo(lastIncoming.ts) - minutesAgo(candidate.ts) : 0;
+
+  // If there were several new messages after the question, it likely got handled or the context moved.
+  if (!directMention && afterCount >= 4) {
+    writeJson(STATE_FILE, state);
+    process.stdout.write('NOSEND\n');
+    return;
+  }
+
+  // If there were follow-ups after it and time drift is big, skip to avoid late/out-of-context replies.
+  if (!directMention && afterCount >= 1 && driftMin > 2) {
     writeJson(STATE_FILE, state);
     process.stdout.write('NOSEND\n');
     return;
