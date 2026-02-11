@@ -1,4 +1,4 @@
 {
-  "lastDoneDate": "2026-02-10",
-  "note": "Set lastDoneDate (YYYY-MM-DD America/Sao_Paulo) when Nikolas confirms the daily finance update is done."
+  "lastDoneMonth": "2026-02",
+  "note": "Set lastDoneMonth (YYYY-MM America/Sao_Paulo) when Nikolas confirms the monthly finance sheet update is done."
 }
