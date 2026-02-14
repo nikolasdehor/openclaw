@@ -115,3 +115,44 @@ Historico completo disponivel em: memory/chat-nikolas-dm-full-log.md
 - Preferência (2026-02-10): usar memórias sempre; tratar conversas (especialmente FOR6DEVS) como base de conhecimento e registrar decisões/stack/ideias acionáveis para ajudar continuamente.
 - Nikolas pediu que o WhatsApp watchdog SEMPRE transcreva áudios (principalmente no FOR6DEVS) e não só marque como [Áudio]. Implementado: watchdog pausa o `wacli sync --follow` quando necessário (store lock), baixa mídia, roda Whisper e inclui a transcrição no alerta; depois reinicia o sync.
 - Depois (2026-02-11): Nikolas pediu para remover o feedback/alertas do FOR6DEVS no DM (estava virando flood). Ajuste: watchdog deixou de monitorar o grupo FOR6DEVS; o acompanhamento/resposta do grupo fica por conta do cron FOR6DEVS helper.
+
+## 2026-02-11 - Ajustes e correções
+- Nikolas reclamou novamente que dehor só responde no FOR6DEVS quando Nikolas fala; deve interagir com todos autonomamente mas sem ser "tagarela".
+- Regra reforçada: no grupo, ser inteligente sobre quando entrar. Entrar quando há pergunta, travamento, risco, ou ninguém respondeu.
+- Cobrança planilha: ajustada para MENSAL (dia 1, 09:00). "feito" = feito do mês. Crons diários/horários desabilitados.
+- Erro: dehor mandou msg técnica "Online. Memória carregada. 3 pendências." — não deveria. Nikolas questionou.
+- WhatsApp caiu 2x hoje (timeout + DNS). Restart manual necessário cada vez.
+- Anthropic OAuth auto-refresh do OpenClaw não funciona (bug); refresh manual ok.
+
+## 2026-02-11 - Mercado Livre (anúncio Laura)
+- Laura mandou link de capa+teclado Lenovo Tab P11 Plus perguntando se é confiável.
+- Nikolas: "se vire e olhe o site, não peça print pra ela".
+- Consegui abrir o anúncio MLB3381553078. É *Compra Internacional* (envio da China), com aviso de possível tributação.
+- Vendedor: *CNYUANSHENG-BRR* (seller_id 1279130224). Sinais no anúncio: *reputação verde (5_green)* e *MercadoLíder Silver* (power_seller_status silver), com "+100 vendas".
+- Ponto de atenção: prazo/risco de taxa por ser internacional; manter compra/pagamento dentro da plataforma (Compra Garantida + devolução grátis 30 dias).
+- 2026-02-11: enviei essa orientação pra Laura (+556299107824). Tive que reiniciar o gateway porque o tool de envio estava dando erro "No active WhatsApp Web listener"; após `openclaw gateway restart` voltou a enviar normal.
+
+## 2026-02-11 - Finanças (contexto real do problema)
+- Nikolas disse que o maior problema é estar usando *um cartão para pagar outro*, porque a renda mensal é só ~R$ 3.800.
+
+## 2026-02-11 - Preferência de formatação (WhatsApp)
+- Nikolas pediu para eu parar de errar escrita/formatação no WhatsApp.
+- Regra prática: negrito no WhatsApp = *asterisco simples* (ex: *texto*). Não usar **texto**.
+- Quando ele falar "corrige a formatação", é pra eu aplicar como regra daqui pra frente (não reescrever a mensagem inteira, a menos que ele peça).
+- Ele apontou que a última mensagem no FOR6DEVS ainda saiu com ** (markdown). Ajustei o cron do helper do grupo para sanitizar: trocar todo "**" por "*" antes de enviar.
+- 2026-02-12: Nikolas reforçou que quer postura mais JARVIS no FOR6DEVS (interagir com todo mundo, sem ignorar Jongas).
+- 2026-02-12: Fix do FOR6DEVS helper para parar de "ignorar o Jongas" e perguntas sem menção:
+  - `scripts/for6devs_sentinel.mjs` agora detecta pergunta/pedido ("?", "vale a pena", "como", "tem como", "consegue" etc.) e só tenta responder quando é acionável.
+  - Prioridade explícita pro Jongas (JIDs conhecidos), mesmo sem menção.
+  - Não consome cooldown quando é só conversa não-acionável.
+  - Transcrição de áudio só roda quando vai responder.
+  - Prompt do cron do helper (id 325399ab-5f63-4d9d-a1e3-c46bb5a4a326) alinhado com `SEND`/`NOSEND` e sanitização "**" -> "*".
+- Erro recorrente a evitar: não mandar mensagens internas tipo "Online. Memória carregada. 3 pendências." no WhatsApp/DM.
+- 2026-02-14: Nikolas reforçou autonomia estilo Jarvis no WhatsApp (agir sem esperar prompt) e pediu acompanhamento proativo do pai durante viagem em São Miguel do Gostoso/RN.
+- 2026-02-14: alinhado que WhatsApp nativo é prioridade; `wacli` é apoio para histórico/mídia/transcrição, sem depender dele para funções críticas.
+- Ele descreveu o ciclo: passar cartão na maquininha e parcelar, e a dívida vai "virando" todo mês.
+- Nikolas mencionou ter outro cartão com limite ~R$ 8.100 e perguntou se vale usar para "fazer saldo" (consolidar/pagar outros) e ir pagando por mês.
+
+## 2026-02-11 - WhatsApp/wacli (instabilidade)
+- WhatsApp (gateway) conectando/desconectando hoje.
+- `wacli` perdeu autenticação (authenticated:false); precisa re-logar via `wacli auth --follow` e escanear o QR para voltar a syncar histórico/transcrever áudios.
