@@ -150,6 +150,7 @@ Historico completo disponivel em: memory/chat-nikolas-dm-full-log.md
 - Erro recorrente a evitar: não mandar mensagens internas tipo "Online. Memória carregada. 3 pendências." no WhatsApp/DM.
 - 2026-02-14: Nikolas reforçou autonomia estilo Jarvis no WhatsApp (agir sem esperar prompt) e pediu acompanhamento proativo do pai durante viagem em São Miguel do Gostoso/RN.
 - 2026-02-14: alinhado que WhatsApp nativo é prioridade; `wacli` é apoio para histórico/mídia/transcrição, sem depender dele para funções críticas.
+- 2026-02-14: Nikolas cobrou que, ao receber mídia (áudio/foto) do pai, eu devo entender o contexto antes de responder (evitar pergunta genérica/repetida). Regra prática: baixar mídia, transcrever áudios, interpretar foto e responder com contexto específico.
 - Ele descreveu o ciclo: passar cartão na maquininha e parcelar, e a dívida vai "virando" todo mês.
 - Nikolas mencionou ter outro cartão com limite ~R$ 8.100 e perguntou se vale usar para "fazer saldo" (consolidar/pagar outros) e ir pagando por mês.
 
