@@ -139,6 +139,7 @@ export async function monitorWebChannel(
   process.once("SIGINT", handleSigint);
 
   let reconnectAttempts = 0;
+  let lastConnectionFailureAt = 0;
 
   while (true) {
     if (stopRequested()) {
@@ -213,6 +214,17 @@ export async function monitorWebChannel(
       // Connection-phase failure (DNS, timeout, TLS, etc.) — treat as a
       // retryable disconnect instead of crashing the reconnect loop.
       const errorStr = formatError(err);
+
+      // If enough time has passed since the last connection-phase failure,
+      // reset the counter so intermittent outages don't permanently escalate
+      // the backoff (mirrors the "healthy stretch" reset for post-connect
+      // disconnects at line ~383).
+      const now = Date.now();
+      if (lastConnectionFailureAt > 0 && now - lastConnectionFailureAt > heartbeatSeconds * 1000) {
+        reconnectAttempts = 0;
+      }
+      lastConnectionFailureAt = now;
+
       reconnectAttempts += 1;
       status.connected = false;
       status.lastEventAt = Date.now();
