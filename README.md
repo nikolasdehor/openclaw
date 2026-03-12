@@ -31,9 +31,9 @@ Este repositório contém o workspace do assistente **OpenClaw**, também conhec
    cd openclaw
    ```
 
-2. Configure as variáveis de ambiente (veja `.env.example`):
+2. Configure as variáveis de ambiente (veja `docs/.env.example`):
    ```bash
-   cp .env.example .env
+   cp docs/.env.example .env
    # Edite .env com suas credenciais
    ```
 

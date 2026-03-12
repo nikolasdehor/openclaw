@@ -1,0 +1,62 @@
+# Diretórios de dados sensíveis e temporários
+secrets/
+logs/
+tmp/
+downloads/
+.openclaw/
+.clawhub/
+.learnings/
+.pi/
+.venv-*
+out/
+openclaw-src/
+self-improving-agent/
+skills/
+
+# Arquivos de estado e temporários
+*.log
+*.pid
+*.out
+*.state.json
+*.tmp
+*.bak
+*.swp
+*.swo
+.DS_Store
+
+# Arquivos de mídia e áudio (grandes)
+*.mp3
+*.m4a
+*.pdf
+
+# Arquivos de transcrição e dados de stories
+st*.
+st*.
+st*.json
+st*.txt
+st*.srt
+st*.tsv
+st*.vtt
+all_stories.json
+eduardo_stories.json
+stories_data.json
+
+# Arquivos de configuração local (podem conter segredos)
+.env
+.env.local
+.env.*.local
+
+# Diretório memory: arquivos de estado e logs específicos
+memory/*.json
+memory/*.log
+memory/*.pid
+memory/for6devs-*.json
+memory/heartbeat-state.json
+memory/whatsapp-watch-state.json
+memory/wacli-sync.*
+memory/chat-*-history.md
+memory/chat-*.md
+
+# Arquivos de documentação gerada (podem ser versionados se necessário)
+-kanban-mvp.md
+-roadmap-2-semanas.md

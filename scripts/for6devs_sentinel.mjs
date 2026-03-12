@@ -4,7 +4,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const GROUP_JID = '120363152934505042@g.us';
-const STATE_FILE = '/Users/nikolas/.openclaw/workspace/memory/for6devs-sentinel-state.json';
+const STATE_FILE = '/data/.openclaw/workspace/memory/for6devs-sentinel-state.json';
+
+// Cooldown: minimum minutes between auto-replies (unless clear actionable context).
+const COOLDOWN_MIN = 1;
+// Max age: don't respond to messages older than this (minutes).
+const MAX_AGE_MIN = 15;
+
+// Known sender JIDs (best-effort) to prioritize.
+// Jongas / João Pedro has shown up as these @lid variants.
+const JONGAS_JIDS = new Set([
+  '145479149031470@lid',
+  '145479149031470:41@lid',
+  '145479149031470:42@lid',
+]);
+
+// Nikolas in group can appear as rotating @lid variants (:33, :34...).
+// Match by stable base id to avoid needing manual updates every time.
+const NIKOLAS_BASE_ID = '89163739189254';
+
+function isNikolasJid(jid) {
+  const s = (jid || '').toString();
+  return s.startsWith(`${NIKOLAS_BASE_ID}@lid`) || s.startsWith(`${NIKOLAS_BASE_ID}:`);
+}
 
 function nowIsoUtc() {
   return new Date().toISOString();
@@ -34,10 +56,9 @@ function initState() {
   return {
     lastSeenTs: nowIsoUtc(),
     lastRespondedAt: null,
-    lastRespondedMsgId: null,
     contacts: {},
     transcripts: {},
-    version: 1,
+    version: 2,
   };
 }
 
@@ -46,21 +67,19 @@ function normalizeState(raw) {
   return {
     lastSeenTs: raw.lastSeenTs || nowIsoUtc(),
     lastRespondedAt: raw.lastRespondedAt || null,
-    lastRespondedMsgId: raw.lastRespondedMsgId || null,
     contacts: raw.contacts && typeof raw.contacts === 'object' ? raw.contacts : {},
     transcripts: raw.transcripts && typeof raw.transcripts === 'object' ? raw.transcripts : {},
-    version: 1,
+    version: 2,
   };
 }
 
-function runWacliList({ after, limit = 30 }) {
+function runWacliList({ after, limit = 40 }) {
   const args = ['--timeout', '20s', 'messages', 'list', '--chat', GROUP_JID, '--after', after, '--limit', String(limit), '--json'];
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const out = execFileSync('wacli', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       if (!out || !out.trim()) throw new Error('empty');
-      const parsed = JSON.parse(out);
-      return { ok: true, json: parsed };
+      return { ok: true, json: JSON.parse(out) };
     } catch (e) {
       if (attempt === 1) {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 600);
@@ -153,48 +172,64 @@ function restartWacliSyncFollow() {
 
 function transcribeAudioFile(filePath) {
   try {
-    const outDir = '/Users/nikolas/.openclaw/workspace/tmp/whisper';
-    fs.mkdirSync(outDir, { recursive: true });
+    const outFile = '/data/.openclaw/workspace/tmp/whisper-out.txt';
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
     execFileSync(
-      'whisper',
-      [filePath, '--language', 'pt', '--task', 'transcribe', '--model', 'turbo', '--output_format', 'txt', '--output_dir', outDir, '--verbose', 'False'],
-      { stdio: ['ignore', 'ignore', 'ignore'], timeout: 120000 }
+      '/usr/local/lib/node_modules/openclaw/skills/openai-whisper-api/scripts/transcribe.sh',
+      [filePath, '--language', 'pt', '--out', outFile],
+      { stdio: ['ignore', 'ignore', 'ignore'], timeout: 120000, env: { ...process.env } }
     );
-    const base = path.basename(filePath).replace(/\.[^.]+$/, '');
-    const txtPath = path.join(outDir, `${base}.txt`);
-    const text = fs.readFileSync(txtPath, 'utf8');
+    const text = fs.readFileSync(outFile, 'utf8');
     return (text || '').replace(/\s+/g, ' ').trim();
   } catch {
     return null;
   }
 }
 
-const OWNER_JIDS = new Set([
-  // Nikolas (owner) variants
-  '556286077431@s.whatsapp.net',
-  '556286077431:33@s.whatsapp.net',
-  '89163739189254@lid',
-  '89163739189254:33@lid',
-]);
-
 function isDirectMention(t) {
   return /(dehor|devinho|bot)\b/i.test((t || '').trim());
 }
 
-function isQuestionText(t) {
-  const s = (t || '').trim();
+function isQuestionOrRequest(t) {
+  const s = (t || '').trim().toLowerCase();
   if (!s) return false;
-  const lower = s.toLowerCase();
-
-  // Strong signals.
   if (s.includes('?')) return true;
-  if (isDirectMention(s)) return true;
-
-  // Weak signals (only if message starts like a question).
-  if (/^(como|qual|quando|onde|pq|por que|que horas|algu[eé]m|ajuda|erro|bug)\b/.test(lower)) return true;
-
-  return false;
+  // common group requests even without '?'
+  return (
+    s.startsWith('vale a pena') ||
+    s.startsWith('compensa') ||
+    s.startsWith('como ') ||
+    s.includes('como faz') ||
+    s.includes('tem como') ||
+    s.includes('consegue') ||
+    s.includes('conseguem') ||
+    s.includes('me ajuda') ||
+    s.includes('ajuda') ||
+    s.includes('alguém sabe') ||
+    s.includes('alguem sabe') ||
+    s.includes('dúvida') ||
+    s.includes('duvida') ||
+    s.includes('preciso de')
+  );
 }
+
+function isTrivialAck(t) {
+  const s = (t || '').trim().toLowerCase();
+  if (!s) return true;
+  return [
+    'ok', 'blz', 'beleza', 'show', 'top', 'boa', 'valeu', 'tmj', 'kkk', 'haha', 'hahaha',
+    'pode ser', 'fechou', 'entendi', 'sim', 'não', 'nao', 'de boa'
+  ].includes(s);
+}
+
+// DEHOR_JIDS: messages sent by dehor itself (FromMe=true already filters these,
+// but also filter by JID in case of edge cases).
+const DEHOR_JIDS = new Set([
+  '556298561249@s.whatsapp.net',
+  '556298561249:10@s.whatsapp.net',
+  '251844634894449:10@lid',
+  '251844634894449@lid',
+]);
 
 function main() {
   const raw = safeReadJson(STATE_FILE);
@@ -206,13 +241,15 @@ function main() {
     return;
   }
 
-  // Anti-flood: one reply per 10 minutes unless direct mention.
-  const allowAny = minutesAgo(state.lastRespondedAt) >= 10;
+  const hasMention = { value: false };
 
+  // Check cooldown
+  const cooldownOk = minutesAgo(state.lastRespondedAt) >= COOLDOWN_MIN;
+
+  // Fetch new messages since last check
   const after = state.lastSeenTs || nowIsoUtc();
   const res = runWacliList({ after, limit: 40 });
   if (!res.ok) {
-    // don't send anything; just keep state as-is
     process.stdout.write('NOSEND\n');
     return;
   }
@@ -223,22 +260,27 @@ function main() {
     return;
   }
 
-  // Update lastSeenTs
+  // Update lastSeenTs to the newest message
   let maxTs = null;
   for (const m of messages) {
     if (m && m.Timestamp && (!maxTs || m.Timestamp > maxTs)) maxTs = m.Timestamp;
   }
   if (maxTs) state.lastSeenTs = maxTs;
 
+  // Filter to incoming (not from dehor)
   const incoming = messages
-    .filter(m => m && m.FromMe === false)
-    .map(m => ({
-      id: m.MsgID,
-      ts: m.Timestamp,
-      senderJid: m.SenderJID || null,
-      mediaType: (m.MediaType || '').toLowerCase() || null,
-      text: (m.Text || '').trim(),
-    }))
+    .filter(m => m && m.FromMe === false && !DEHOR_JIDS.has(m.SenderJID || ''))
+    .map(m => {
+      const text = (m.Text || '').trim();
+      if (isDirectMention(text)) hasMention.value = true;
+      return {
+        id: m.MsgID,
+        ts: m.Timestamp,
+        senderJid: m.SenderJID || null,
+        mediaType: (m.MediaType || '').toLowerCase() || null,
+        text,
+      };
+    })
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 
   if (incoming.length === 0) {
@@ -247,7 +289,71 @@ function main() {
     return;
   }
 
-  // Build full context for the LLM: latest 40 messages
+  // Check if the latest incoming message is too old
+  const latestIncoming = incoming[incoming.length - 1];
+  const latestAge = minutesAgo(latestIncoming.ts);
+
+  // For direct mentions, be more lenient with age (30 min)
+  const ageLimit = hasMention.value ? 30 : MAX_AGE_MIN;
+  if (latestAge > ageLimit) {
+    writeJson(STATE_FILE, state);
+    process.stdout.write('NOSEND\n');
+    return;
+  }
+
+  // Decide if we should reply at all (deterministic, anti-spam):
+  // reply if there's a direct mention, a clear question/request, or a media item with caption.
+  const shouldReply = incoming.some(m => {
+    if (!m) return false;
+    if (hasMention.value) return true;
+    if (isQuestionOrRequest(m.text)) return true;
+    if (m.mediaType === 'document' && (m.text || '').trim()) return true;
+    if (m.mediaType === 'audio') return true;
+    // Intelligent participation for everyone: engage on meaningful non-trivial text.
+    if ((m.text || '').trim() && !isTrivialAck(m.text)) return true;
+    return false;
+  });
+
+  // Cooldown check (skip if direct mention OR Nikolas message)
+  const hasClearQuestion = incoming.some(m => isQuestionOrRequest(m.text));
+  const hasMeaningfulText = incoming.some(m => (m.text || '').trim() && !isTrivialAck(m.text));
+  if (!cooldownOk && !hasMention.value && !hasClearQuestion && !hasMeaningfulText) {
+    writeJson(STATE_FILE, state);
+    process.stdout.write('NOSEND\n');
+    return;
+  }
+
+  if (!shouldReply) {
+    // Persist lastSeenTs but do not burn cooldown on non-actionable chatter.
+    writeJson(STATE_FILE, state);
+    process.stdout.write('NOSEND\n');
+    return;
+  }
+
+  // Transcribe audio messages (best-effort) only when we intend to reply.
+  for (const m of incoming) {
+    if (m.mediaType === 'audio' && m.id) {
+      const key = `${m.id}`;
+      if (state.transcripts && state.transcripts[key]) {
+        m.transcript = state.transcripts[key];
+      } else {
+        const outDir = '/data/.openclaw/workspace/tmp/wa-media';
+        fs.mkdirSync(outDir, { recursive: true });
+        const { res: dl, killedPid } = maybeUnlockStoreAndRetry(() => runWacliMediaDownload({ id: m.id, outDir }));
+        if (killedPid) restartWacliSyncFollow();
+        if (dl.ok && dl.path) {
+          const t = transcribeAudioFile(dl.path);
+          if (t) {
+            const transcript = t.length > 500 ? t.slice(0, 497) + '...' : t;
+            m.transcript = transcript;
+            state.transcripts[key] = transcript;
+          }
+        }
+      }
+    }
+  }
+
+  // Build full context: latest 40 messages from group
   const ctxRes = runWacliList({ after: '1970-01-01T00:00:00Z', limit: 40 });
   const ctxMsgs = (ctxRes.ok ? (((ctxRes.json || {}).data || {}).messages) : []) || [];
   const context = ctxMsgs
@@ -263,119 +369,29 @@ function main() {
     }))
     .reverse();
 
-  // Candidate: latest incoming message that looks like a question/help.
-  let candidate = null;
-  for (let i = incoming.length - 1; i >= 0; i--) {
-    const m = incoming[i];
-    const isAudio = m.mediaType === 'audio';
+  // Enrich incoming with sender names
+  const newMessages = incoming.map(m => ({
+    msgId: m.id,
+    ts: m.ts,
+    senderJid: m.senderJid,
+    senderName: senderNameFor(state, m.senderJid) || null,
+    mediaType: m.mediaType,
+    text: m.text,
+    transcript: m.transcript || null,
+  }));
 
-    // Don't auto-reply to the owner in the group (unless direct mention).
-    if (m.senderJid && OWNER_JIDS.has(m.senderJid) && !isDirectMention(m.text)) continue;
-
-    if (!m.text && !isAudio) continue;
-
-    // For audio, we'll only consider it a candidate after transcription (later) and if it looks like a question.
-    if (isAudio) {
-      candidate = m;
-      break;
-    }
-
-    if (isQuestionText(m.text)) {
-      candidate = m;
-      break;
-    }
-  }
-
-  if (!candidate) {
-    writeJson(STATE_FILE, state);
-    process.stdout.write('NOSEND\n');
-    return;
-  }
-
-  const directMention = isDirectMention(candidate.text);
-
-  // Don't jump in if the conversation already moved far past the candidate (unless direct mention).
-  const idx = incoming.findIndex(x => x && x.id && candidate.id && x.id === candidate.id);
-  const afterCount = idx >= 0 ? (incoming.length - idx - 1) : 0;
-  const lastIncoming = incoming[incoming.length - 1];
-  const driftMin = lastIncoming && lastIncoming.ts ? minutesAgo(lastIncoming.ts) - minutesAgo(candidate.ts) : 0;
-
-  // If there were several new messages after the question, it likely got handled or the context moved.
-  if (!directMention && afterCount >= 4) {
-    writeJson(STATE_FILE, state);
-    process.stdout.write('NOSEND\n');
-    return;
-  }
-
-  // If there were follow-ups after it and time drift is big, skip to avoid late/out-of-context replies.
-  if (!directMention && afterCount >= 1 && driftMin > 2) {
-    writeJson(STATE_FILE, state);
-    process.stdout.write('NOSEND\n');
-    return;
-  }
-
-  // If we're within cool-down and it's not a direct mention, skip.
-  if (!allowAny && !directMention) {
-    writeJson(STATE_FILE, state);
-    process.stdout.write('NOSEND\n');
-    return;
-  }
-
-  // If candidate is old (>8 min), avoid late replies.
-  if (minutesAgo(candidate.ts) > 8) {
-    writeJson(STATE_FILE, state);
-    process.stdout.write('NOSEND\n');
-    return;
-  }
-
-  // Best-effort transcript for audio candidates.
-  let transcript = null;
-  if (candidate.mediaType === 'audio') {
-    const key = `${candidate.id}`;
-    if (state.transcripts && state.transcripts[key]) {
-      transcript = state.transcripts[key];
-    } else if (candidate.id) {
-      const outDir = '/Users/nikolas/.openclaw/workspace/tmp/wa-media';
-      fs.mkdirSync(outDir, { recursive: true });
-      const { res: dl, killedPid } = maybeUnlockStoreAndRetry(() => runWacliMediaDownload({ id: candidate.id, outDir }));
-      if (killedPid) restartWacliSyncFollow();
-      if (dl.ok && dl.path) {
-        const t = transcribeAudioFile(dl.path);
-        if (t) {
-          transcript = t.length > 500 ? t.slice(0, 497) + '...' : t;
-          state.transcripts[key] = transcript;
-        }
-      }
-    }
-
-    // If audio transcript doesn't look like a question/help, skip.
-    if (!isQuestionText(transcript || '')) {
-      writeJson(STATE_FILE, state);
-      process.stdout.write('NOSEND\n');
-      return;
-    }
-  }
-
-  // Mark as responded now (best-effort throttle; assumes the cron will send after we say SEND)
+  // Mark as responded (we only reach here if we intend to reply)
   state.lastRespondedAt = nowIsoUtc();
-  state.lastRespondedMsgId = candidate.id || null;
 
-  // Persist state (seen ts + caches)
+  // Persist state
   writeJson(STATE_FILE, state);
 
   process.stdout.write('SEND\n');
   process.stdout.write(
     JSON.stringify(
       {
-        candidate: {
-          msgId: candidate.id,
-          ts: candidate.ts,
-          senderJid: candidate.senderJid,
-          senderName: senderNameFor(state, candidate.senderJid) || null,
-          mediaType: candidate.mediaType,
-          text: candidate.text,
-          transcript,
-        },
+        newMessages,
+        hasDirectMention: hasMention.value,
         context,
       },
       null,
