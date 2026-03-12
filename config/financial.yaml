@@ -1,0 +1,11 @@
+{
+  "source": "csv",
+  "csv_path": "/data/.openclaw/workspace/data/financial.csv",
+  "report": {
+    "frequency": "daily",
+    "send_at": "18:00",
+    "recipient": "+556286077431",
+    "show_categories": true,
+    "days_back": 7
+  }
+}
