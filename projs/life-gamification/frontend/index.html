@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Gamification - Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🎮 Life Quest</h1>
+            <div class="user-info">
+                <span class="user-phone" id="userPhone">+556286077431</span>
+                <div class="level-badge">
+                    <span class="level">Nível <span id="userLevel">1</span></span>
+                    <span class="total-points" id="totalPoints">0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="dashboard-grid">
+            <!-- Areas Cards -->
+            <section class="areas-section">
+                <h2>📊 Suas Áreas</h2>
+                <div class="areas-grid" id="areasGrid">
+                    <!-- Cards gerados dinamicamente -->
+                </div>
+            </section>
+
+            <!-- Achievements -->
+            <section class="achievements-section">
+                <h2>🏆 Achievements</h2>
+                <div class="achievements-list" id="achievementsList">
+                    <!-- Gerado dinamicamente -->
+                </div>
+            </section>
+
+            <!-- Recent Missions -->
+            <section class="missions-section">
+                <h2>📋 Missões Recentes</h2>
+                <div class="missions-list" id="missionsList">
+                    <!-- Gerado dinamicamente -->
+                </div>
+            </section>
+
+            <!-- AI Recommendations -->
+            <section class="ai-section">
+                <h2>🤖 Recomendações da IA</h2>
+                <div class="ai-advice" id="aiAdvice">
+                    <button class="btn-primary" id="generateRecommendations">Gerar Missões Personalizadas</button>
+                    <div id="recommendationsList" class="recommendations-list"></div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Action Modal -->
+        <div class="modal" id="completeModal">
+            <div class="modal-content">
+                <h3>Completar Missão</h3>
+                <p id="missionTitle"></p>
+                <form id="completeForm">
+                    <input type="hidden" id="missionId">
+                    <div class="form-group">
+                        <label for="notes">Notas (opcional):</label>
+                        <textarea id="notes" rows="3"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                        <button type="submit" class="btn-primary">Confirmar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="toast-container" id="toastContainer"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
